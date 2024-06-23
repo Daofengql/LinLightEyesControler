@@ -6,7 +6,7 @@ import os
 
 current_module_path = os.path.dirname(os.path.abspath(__file__))
 
-class streamLive:
+class StreamLive:
     def __init__(self, camera=0, width=1920, height=1080, tick=60) -> None:
         self.frame_queue = Queue(maxsize=500)  # 创建一个队列用于存储帧
         self.camera = camera  # 摄像头设备索引
