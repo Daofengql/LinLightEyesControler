@@ -8,6 +8,6 @@ from libs.stream import streamLive
 
 
 #图传线程上
-s1 = streamLive()
+s1 = streamLive(tick=60,camera=0)
 s_thread = threading.Thread(target=s1.startStream)
 s_thread.start()

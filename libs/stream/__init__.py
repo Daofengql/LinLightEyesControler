@@ -18,6 +18,8 @@ class streamLive:
         cap = cv2.VideoCapture(self.camera)  # 打开摄像头
         cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.WIDTH)  # 设置摄像头捕获帧的宽度
         cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.HEIGHT)  # 设置摄像头捕获帧的高度
+        cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter.fourcc('M', 'J', 'P', 'G')) 
+        cap.set(cv2.CAP_PROP_FPS, self.tick) 
         while True:
             ret, frame = cap.read()  # 读取一帧
             if not ret:
