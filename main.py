@@ -12,21 +12,21 @@ def main():
     global running
     running = True
 
-    def start_all_features():
+    def start_all_features(width, height, tick, camera):
         global running
         running = False
         menu.close()
         pygame.quit()
-        stream_live = StreamLive(width=WIDTH, height=HEIGHT, tick=120, camera=0)
+        stream_live = StreamLive(width=width, height=height, tick=tick, camera=camera)
         s_thread = threading.Thread(target=stream_live.startStream)
         s_thread.start()
 
-    def start_video_transmission():
+    def start_video_transmission(width, height, tick, camera):
         global running
         running = False
         menu.close()
         pygame.quit()
-        stream_live = StreamLive(width=WIDTH, height=HEIGHT, tick=120, camera=0)
+        stream_live = StreamLive(width=width, height=height, tick=tick, camera=camera)
         s_thread = threading.Thread(target=stream_live.startStream)
         s_thread.start()
 
@@ -49,8 +49,8 @@ def main():
     screen = pygame.display.set_mode((WIDTH, HEIGHT), pygame.NOFRAME)
     menu = pygame_menu.Menu('LinLight Eye Tracker System', WIDTH, HEIGHT, theme=mytheme)
 
-    menu.add.button('启动所有功能', start_all_features)
-    menu.add.button('启动图传功能', start_video_transmission)
+    menu.add.button('启动所有功能', start_all_features, WIDTH, HEIGHT, 120, 0)
+    menu.add.button('启动图传功能', start_video_transmission, WIDTH, HEIGHT, 120, 0)
     menu.add.button('退出', quit_program)
 
     # 菜单循环

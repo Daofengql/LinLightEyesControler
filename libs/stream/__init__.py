@@ -3,6 +3,8 @@ import pygame
 import threading
 from queue import Queue
 import os
+import psutil
+import time
 
 current_module_path = os.path.dirname(os.path.abspath(__file__))
 
@@ -13,6 +15,8 @@ class StreamLive:
         # 设置摄像头和显示窗口的分辨率
         self.WIDTH, self.HEIGHT = width, height
         self.tick = tick  # 设置帧率
+        self.cpu = 0
+        self.mem = 0
 
     def _capture_frames(self):
         cap = cv2.VideoCapture(self.camera)  # 打开摄像头
@@ -28,6 +32,14 @@ class StreamLive:
                 self.frame_queue.put(frame)  # 将帧放入队列
             else:
                 print("Queue is full, skipping frame")  # 如果队列已满，跳过当前帧
+
+    def _system_frames(self):
+        while True:
+            # 获取系统信息
+            self.cpu = psutil.cpu_percent()
+            mem_info = psutil.virtual_memory()
+            self.mem = mem_info.percent
+            time.sleep(1)
 
     def _display_frames(self):
         pygame.init()  # 初始化pygame
@@ -47,6 +59,9 @@ class StreamLive:
         screen.blit(text_small, text_small_rect)  # 在屏幕上绘制小字体文本
         pygame.display.flip()  # 更新屏幕显示
 
+        # 创建显示系统信息的字体
+        font_sys_info = pygame.font.Font(None, int(self.HEIGHT / 20))  # 10%高度
+
         while True:
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
@@ -58,6 +73,14 @@ class StreamLive:
                 frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)  # 将BGR格式转换为RGB格式
                 frame = pygame.surfarray.make_surface(frame.swapaxes(0, 1))  # 将numpy数组转换为pygame表面
                 screen.blit(frame, (0, 0))  # 在屏幕上绘制帧
+
+                screen.blit(
+                    font_sys_info.render(f'CPU: {self.cpu}%', True, (0, 255, 0)),(10, 10)
+                )
+                screen.blit(
+                    font_sys_info.render(f'Memory: {self.mem}%', True, (0, 255, 0)),(10, 10+int(self.HEIGHT / 20))
+                )
+
                 pygame.display.flip()  # 更新屏幕显示
 
             clock.tick(self.tick)  # 控制帧率
@@ -65,6 +88,8 @@ class StreamLive:
     def startStream(self):
         capture_thread = threading.Thread(target=self._capture_frames)  # 创建捕获帧的线程
         display_thread = threading.Thread(target=self._display_frames)  # 创建显示帧的线程
+        sys_thread = threading.Thread(target=self._system_frames)  # 创建显示系统的线程
         # 启动线程
         capture_thread.start()
         display_thread.start()
+        sys_thread.start()
