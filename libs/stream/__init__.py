@@ -5,11 +5,12 @@ from queue import Queue
 import os
 import psutil
 import time
+import platform
 
 current_module_path = os.path.dirname(os.path.abspath(__file__))
 
 class StreamLive:
-    def __init__(self, camera=0, width=1920, height=1080, tick=60) -> None:
+    def __init__(self, camera=0, width=1920, height=1080, tick=60, fullscreen = False) -> None:
         self.frame_queue = Queue(maxsize=500)  # 创建一个队列用于存储帧
         self.camera = camera  # 摄像头设备索引
         # 设置摄像头和显示窗口的分辨率
@@ -17,9 +18,13 @@ class StreamLive:
         self.tick = tick  # 设置帧率
         self.cpu = 0
         self.mem = 0
+        self.fullscreen = fullscreen
 
     def _capture_frames(self):
-        cap = cv2.VideoCapture(self.camera)  # 打开摄像头
+        if platform.system() == 'Linux':
+            cap = cv2.VideoCapture(self.camera, cv2.CAP_V4L2)  # 使用V4L2驱动程序打开摄像头
+        else:
+            cap = cv2.VideoCapture(self.camera)  # 使用默认后端打开摄像头
         cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.WIDTH)  # 设置摄像头捕获帧的宽度
         cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.HEIGHT)  # 设置摄像头捕获帧的高度
         cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter.fourcc('M', 'J', 'P', 'G')) 
@@ -43,7 +48,14 @@ class StreamLive:
 
     def _display_frames(self):
         pygame.init()  # 初始化pygame
-        screen = pygame.display.set_mode((self.WIDTH, self.HEIGHT), pygame.NOFRAME)  # 创建无边框窗口
+        
+
+        if self.fullscreen:
+            screen = pygame.display.set_mode((self.WIDTH, self.HEIGHT), pygame.FULLSCREEN)  # 创建全屏窗口
+        else:   
+            screen = pygame.display.set_mode((self.WIDTH, self.HEIGHT), pygame.NOFRAME)  # 创建无边框窗口
+
+
         clock = pygame.time.Clock()  # 创建时钟对象
 
         # 显示启动提示
