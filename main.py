@@ -5,7 +5,7 @@ import board
 import digitalio
 from periphery import SPI
 
-from lib.render import (
+from lib.Render import (
     IrisAndScleraRender,
     EyeLidRender,
     crop_centered_region,
@@ -13,7 +13,7 @@ from lib.render import (
     combine_render
 )
 from lib.EyesControler import detect_pupil
-from lib.st7789 import ST7789
+from lib.ST7789 import ST7789
 
 
 
