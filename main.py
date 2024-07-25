@@ -35,8 +35,8 @@ RIGHT_EYE_DC_PIN = board.GPIO16              #DC控制引脚
 RIGHT_EYE_EXCURISON = (5,5)                  #玻璃透镜贴的歪的程度，一个偏移矫正量
 
 #初始化各个眼睛的spi总线（一个总线，两个片选设备)
-SPI_LEFT = SPI(LEFT_EYE_TREE, 0, SPI_SPEED)
-SPI_RIGHT = SPI(RIGHT_EYE_TREE, 0, SPI_SPEED)
+SPI_LEFT = SPI(LEFT_EYE_TREE, 2, SPI_SPEED)
+SPI_RIGHT = SPI(RIGHT_EYE_TREE, 2, SPI_SPEED)
 
 #各个眼睛控制器开始实例化
 LEFT_SCREEN = ST7789(
@@ -124,7 +124,7 @@ def init():
 
     #渲染器开始预渲染纹理，将纹理载入内存
     LEFT_IRIS_AND_SCLERA_RENDER = IrisAndScleraRender(
-        sclera=LEFT_IRIS_IMG,
+        sclera=LEFT_SCLERA_IMG,
         iris=LEFT_IRIS_IMG,
         frame_size=IAS_FRAME_SIZE,
         **LEFT_IASR_CONF
