@@ -63,6 +63,34 @@ def aspect_ratio_similarity(contour: np.ndarray) -> float:
     aspect_ratio = float(w) / h if h != 0 else 0
     return abs(aspect_ratio - 1.0)
 
+def center_crop_16_9(image):
+    """
+    Crop the largest possible 16:9 area from the center of the image.
+
+    Parameters:
+    image (numpy.ndarray): The input image as a numpy array of shape (height, width, channels).
+
+    Returns:
+    numpy.ndarray: The cropped image as a numpy array.
+    """
+    height, width, _ = image.shape
+
+    # Calculate the new dimensions for a 16:9 aspect ratio
+    if width / height > 16 / 9:
+        new_width = int(height * 16 / 9)
+        new_height = height
+    else:
+        new_height = int(width * 9 / 16)
+        new_width = width
+
+    # Calculate the cropping coordinates
+    x_start = (width - new_width) // 2
+    y_start = (height - new_height) // 2
+
+    # Crop the image
+    cropped_image = image[y_start:y_start + new_height, x_start:x_start + new_width]
+    return cropped_image
+
 def detect_pupil(frame: np.ndarray, roi_percentage: float, min_pupil_diameter_percentage: float, eyelid_height_percentage: float) -> tuple:
     """
     检测瞳孔。
@@ -77,6 +105,8 @@ def detect_pupil(frame: np.ndarray, roi_percentage: float, min_pupil_diameter_pe
         tuple: 过滤后的眼睑高度、瞳孔半径和瞳孔中心相对位置的比例。
     """
     global previous_data
+
+    frame = center_crop_16_9(frame)
     
     # 获取图像的尺寸
     rows, cols, _ = frame.shape
