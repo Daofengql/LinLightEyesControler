@@ -174,14 +174,23 @@ class ST7789():
         self.set_cursor(x, y, x, y)
         self.write_data_word(color)
 
-    def img_show(self, image):
+    def img_show(self, pixel):
         """显示图像"""
-        pixel = np.zeros((self.w, self.h, 2), dtype=np.uint8)
-        pixel[..., [0]] = np.add(np.bitwise_and(image[..., [0]], 0xf8), np.right_shift(image[..., [1]], 5))
-        pixel[..., [1]] = np.add(np.bitwise_and(np.left_shift(image[..., [1]], 3), 0xe0), np.right_shift(image[..., [2]], 3))
-        pixel = pixel.flatten().tolist()
         self.set_cursor(0, 0, self.w, self.h)
         self.dc.value = True
         for i in range(0, len(pixel), 4096):
             self.spi.transfer(pixel[i:i+4096])
 
+
+def convert_rgba_to_rgb565(image):
+    """将RGBA图像转换为RGB565格式"""
+    r = image[..., 0] & 0xF8
+    g = image[..., 1]
+    b = image[..., 2] & 0xFC
+
+    pixel_high = r | (g >> 5)
+    pixel_low = ((g << 3) & 0xE0) | (b >> 3)
+
+    # 将高低字节交错合并并展平为一维数组
+    pixel = np.dstack((pixel_high, pixel_low)).flatten().tolist()
+    return pixel
