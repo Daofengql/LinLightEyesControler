@@ -18,12 +18,12 @@ from lib.Render import (
     combine_render
 )
 from lib.EyesControler import detect_pupil
-from lib.ST7789 import ST7789
+from lib.ST7789 import ST7789,convert_rgba_to_rgb565
 
 
 #配置部分，定义各种硬件接口和资源文件
 #SPI总线定义
-SPI_SPEED = 80000000                         #使用60MHZ的通信速率，实测比较稳定的最大速度
+SPI_SPEED = 60000000                         #使用60MHZ的通信速率，实测比较稳定的最大速度
 EYE_BL = board.GPIO11                        #两个眼睛共用同一个背光控制接口，可用pwm控制亮度，默认由屏幕控制器加载为最大亮度
 
 #左眼接口定义
@@ -34,8 +34,8 @@ LEFT_EYE_EXCURISON = (5,5)                   #玻璃透镜贴的歪的程度，�
 
 #右眼接口定义
 RIGHT_EYE_TREE = "/dev/spidev3.1"            #系统spi设备数
-RIGHT_EYE_RES_PIN = board.GPIO18             #RES/RST数据位
-RIGHT_EYE_DC_PIN = board.GPIO16              #DC控制引脚
+RIGHT_EYE_RES_PIN = board.GPIO16             #RES/RST数据位
+RIGHT_EYE_DC_PIN = board.GPIO18              #DC控制引脚
 RIGHT_EYE_EXCURISON = (5,5)                  #玻璃透镜贴的歪的程度，一个偏移矫正量
 
 #初始化各个眼睛的spi总线（一个总线，两个片选设备)
@@ -118,10 +118,10 @@ MQTT_CONF = {
 }
 MQTT_TOPIC = "eye/1"
 INIT_STATUES = False
-TRACK_TYPE = 2     #1为使用opencv追踪    2为使用mqtt传输遥控数据
+TRACK_TYPE = 1     #1为使用opencv追踪    2为使用mqtt传输遥控数据
 
-LEFT_FRAME_BUFFER = deque(maxlen=60)
-RIGHT_FRAME_BUFFER = deque(maxlen=60)
+LEFT_FRAME_BUFFER = deque(maxlen=10)
+RIGHT_FRAME_BUFFER = deque(maxlen=10)
 
 
 #正式加载开始
@@ -165,8 +165,16 @@ def loadingFrame():
     success = np.array(success.convert('RGBA'))
 
     #提交搞笑到屏幕
-    LEFT_SCREEN.img_show(success)
-    RIGHT_SCREEN.img_show(success)
+    LEFT_SCREEN.img_show(
+        convert_rgba_to_rgb565(
+            success
+            )
+    )
+    RIGHT_SCREEN.img_show(
+        convert_rgba_to_rgb565(
+            success
+            )
+    )
 
     time.sleep(3)
     
@@ -179,7 +187,11 @@ def loadingFrame():
             delay = frame.info['duration'] / 800.0
             
 
-            frame_np = np.array(frame.convert('RGBA'))
+            frame_np = convert_rgba_to_rgb565(
+                np.array(
+                    frame.convert('RGBA')
+                    )
+            )
             #提交到屏幕
             LEFT_SCREEN.img_show(frame_np)
             RIGHT_SCREEN.img_show(frame_np)
@@ -237,8 +249,16 @@ def rend(eyelid_percentage, radius, rel_x, rel_y):
 
 
     #体提交到队列
-    LEFT_FRAME_BUFFER.append(left_eye)
-    RIGHT_FRAME_BUFFER.append(right_eye)
+    LEFT_FRAME_BUFFER.append(
+        convert_rgba_to_rgb565(
+            left_eye
+            )
+    )
+    RIGHT_FRAME_BUFFER.append(
+        convert_rgba_to_rgb565(
+            right_eye
+            )
+    )
 
     
 
@@ -305,18 +325,28 @@ def runWithMQTT():
     while True:
         time.sleep(0.01)
 
+
 def SPIpipe():
+    iteration_count = 0
+    start_time = time.time()
 
     while True:
         if len(LEFT_FRAME_BUFFER) == 0 or len(RIGHT_FRAME_BUFFER) == 0:
             pass
         else:
-            #提交到屏幕
+            # 提交到屏幕
             l = LEFT_FRAME_BUFFER.popleft()
             r = RIGHT_FRAME_BUFFER.popleft()
             LEFT_SCREEN.img_show(l)
             RIGHT_SCREEN.img_show(r)
-    
+            iteration_count += 1
+        
+        # 每秒计算并打印循环次数
+        if time.time() - start_time >= 1:
+            print(f"每秒循环次数: {iteration_count},队列长度：{len(LEFT_FRAME_BUFFER)}")
+            iteration_count = 0
+            start_time = time.time()
+
 
 if __name__ == "__main__":
 
@@ -334,10 +364,3 @@ if __name__ == "__main__":
     elif TRACK_TYPE == 2:
         runWithMQTT()
     
-
-    
-
-
-
-
-        
