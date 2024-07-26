@@ -7,6 +7,7 @@ import threading
 import time
 import paho.mqtt.client as mqtt
 import json
+from collections import deque
 from periphery import SPI
 
 from lib.Render import (
@@ -117,7 +118,10 @@ MQTT_CONF = {
 }
 MQTT_TOPIC = "eye/1"
 INIT_STATUES = False
-TRACK_TYPE = 1     #1为使用opencv追踪    2为使用mqtt传输遥控数据
+TRACK_TYPE = 2     #1为使用opencv追踪    2为使用mqtt传输遥控数据
+
+LEFT_FRAME_BUFFER = deque(maxlen=60)
+RIGHT_FRAME_BUFFER = deque(maxlen=60)
 
 
 #正式加载开始
@@ -232,9 +236,11 @@ def rend(eyelid_percentage, radius, rel_x, rel_y):
     right_eye = combine_render(right_eyelid_surface,right_ias_surface)
 
 
-    #提交到屏幕
-    LEFT_SCREEN.img_show(left_eye)
-    RIGHT_SCREEN.img_show(right_eye)
+    #体提交到队列
+    LEFT_FRAME_BUFFER.append(left_eye)
+    RIGHT_FRAME_BUFFER.append(right_eye)
+
+    
 
 
 def runWithCV():
@@ -299,6 +305,19 @@ def runWithMQTT():
     while True:
         time.sleep(0.01)
 
+def SPIpipe():
+
+    while True:
+        if len(LEFT_FRAME_BUFFER) == 0 or len(RIGHT_FRAME_BUFFER) == 0:
+            pass
+        else:
+            #提交到屏幕
+            l = LEFT_FRAME_BUFFER.popleft()
+            r = RIGHT_FRAME_BUFFER.popleft()
+            LEFT_SCREEN.img_show(l)
+            RIGHT_SCREEN.img_show(r)
+    
+
 if __name__ == "__main__":
 
     loadingThread = threading.Thread(target = loadingFrame)
@@ -306,7 +325,19 @@ if __name__ == "__main__":
 
     #初始化开始
     init()
+
+    pipeThread = threading.Thread(target = SPIpipe)
+    pipeThread.start()
+
     if TRACK_TYPE == 1:
         runWithCV()
     elif TRACK_TYPE == 2:
         runWithMQTT()
+    
+
+    
+
+
+
+
+        
