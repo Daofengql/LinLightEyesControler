@@ -1,8 +1,12 @@
-from PIL import Image
+from PIL import Image, ImageSequence
 import numpy as np
 import cv2
 import board
 import digitalio
+import threading
+import time
+import paho.mqtt.client as mqtt
+import json
 from periphery import SPI
 
 from lib.Render import (
@@ -14,7 +18,6 @@ from lib.Render import (
 )
 from lib.EyesControler import detect_pupil
 from lib.ST7789 import ST7789
-
 
 
 #配置部分，定义各种硬件接口和资源文件
@@ -65,7 +68,8 @@ LEFT_IRIS_IMG = "assest/eyes/iris.png"        #左眼虹膜纹理
 LEFT_SCLERA_IMG = "assest/eyes/sclera.png"    #左眼巩膜纹理
 RIGHT_IRIS_IMG = "assest/eyes/iris.png"       #右眼虹膜纹理
 RIGHT_SCLERA_IMG = "assest/eyes/sclera.png"   #右眼巩膜纹理
-
+LOADING_GIF = "assest/loading_Render.gif"
+LOADING_JOKE = "assest/loading_Render_joke.png"
 #渲染器
 LEFT_IRIS_AND_SCLERA_RENDER = None            #左眼主渲染器
 RIGHT_IRIS_AND_SCLERA_RENDER = None           #右眼主渲染器
@@ -101,10 +105,19 @@ EYELID_RENDER_CONF = {
 
 #识别器参数
 DETECT_PUPIL_CONF = {
-    "roi_percentage": 0.8,
+    "roi_percentage": 0.6,
     "min_pupil_diameter_percentage": 0.1,
     "eyelid_height_percentage": 0.2
 }
+# MQTT connection configuration
+MQTT_CONF = {
+    "host": "127.0.0.1",
+    "port": 1883,
+    "keepalive": 60
+}
+MQTT_TOPIC = "eye/1"
+INIT_STATUES = False
+TRACK_TYPE = 1     #1为使用opencv追踪    2为使用mqtt传输遥控数据
 
 
 #正式加载开始
@@ -112,6 +125,7 @@ def init():
 
     global LEFT_IRIS_IMG, LEFT_SCLERA_IMG, RIGHT_IRIS_IMG, RIGHT_SCLERA_IMG
     global LEFT_IRIS_AND_SCLERA_RENDER, RIGHT_IRIS_AND_SCLERA_RENDER, EYELID_RENDER
+    global INIT_STATUES
 
 
     #渲染器开始预渲染加载(高耗时步骤)
@@ -138,18 +152,96 @@ def init():
     EYELID_RENDER = EyeLidRender(
         **EYELID_RENDER_CONF
     )
+    INIT_STATUES = True
+
+#加载动画 搞笑的
+def loadingFrame():
+    gif = Image.open(LOADING_GIF)
+    success = Image.open(LOADING_JOKE)
+    success = np.array(success.convert('RGBA'))
+
+    #提交搞笑到屏幕
+    LEFT_SCREEN.img_show(success)
+    RIGHT_SCREEN.img_show(success)
+
+    time.sleep(3)
+    
+    # 遍历GIF的每一帧
+    while True:
+        for frame in ImageSequence.Iterator(gif):
+            if INIT_STATUES:
+                return
+            # 获取当前帧的延迟时间，单位是毫秒
+            delay = frame.info['duration'] / 800.0
+            
+
+            frame_np = np.array(frame.convert('RGBA'))
+            #提交到屏幕
+            LEFT_SCREEN.img_show(frame_np)
+            RIGHT_SCREEN.img_show(frame_np)
+            
+            # 等待帧延迟时间
+            time.sleep(delay)
 
 
+def rend(eyelid_percentage, radius, rel_x, rel_y):
+    #计算瞳孔偏移后的缩小大小，模拟球面的透视效果
+    pupil_dy =  1 - (1 if abs(rel_x)*1.5 > 1 else abs(rel_x)*1.5)
 
-if __name__ == "__main__":
+    left_ias_img = map_float_to_array(LEFT_IRIS_AND_SCLERA_RENDER.iris_and_sclera_array_list,pupil_dy)
+    right_ias_img = map_float_to_array(RIGHT_IRIS_AND_SCLERA_RENDER.iris_and_sclera_array_list,pupil_dy)
 
-    #初始化开始
-    init()
 
+    eyelid_img = map_float_to_array(EYELID_RENDER.eyelid_list,eyelid_percentage)
+
+    #眨眼处理
+    if radius == 0:
+        eyelid_img = map_float_to_array(EYELID_RENDER.eyelid_list,1)
+
+    
+    #渲染最终图像
+    left_eyelid_surface =  crop_centered_region(
+        eyelid_img, 
+        int(rel_x*3), 
+        int(rel_y*12)
+    )
+    #右眼眼睑镜像
+    right_eyelid_surface =  crop_centered_region(
+        np.fliplr(
+            eyelid_img
+        ), 
+        int(rel_x*3),
+        int(rel_y*12)
+    )
+
+
+    left_ias_surface  = crop_centered_region(
+        left_ias_img, 
+        int(rel_x*100), 
+        int(rel_y*100)
+    )
+
+    right_ias_surface  = crop_centered_region(
+        right_ias_img, 
+        int(rel_x*100), 
+        int(rel_y*100)
+    )
+
+    #合并最终图像
+    left_eye = combine_render(left_eyelid_surface,left_ias_surface)
+    right_eye = combine_render(right_eyelid_surface,right_ias_surface)
+
+
+    #提交到屏幕
+    LEFT_SCREEN.img_show(left_eye)
+    RIGHT_SCREEN.img_show(right_eye)
+
+
+def runWithCV():
     max_eyelid_height = 1
 
     #打开视频设备
-    cap = cv2.VideoCapture("eye.mp4")
+    cap = cv2.VideoCapture("eye2.mp4")
 
     while cap.isOpened():
         ret, frame = cap.read()
@@ -160,6 +252,10 @@ if __name__ == "__main__":
         
         # 获取图像的尺寸
         rows, _, _ = frame.shape
+
+        # 左右翻转图像
+        frame = np.fliplr(frame)
+
         #获取追踪数据
         eyelid_height, radius, (rel_x, rel_y) = detect_pupil(frame, **DETECT_PUPIL_CONF)
         
@@ -168,56 +264,49 @@ if __name__ == "__main__":
             max_eyelid_height = eyelid_height
 
         #计算眼睑打开的比例
-        eyelid_percentage = 1 - eyelid_height / max_eyelid_height
+        eyelid_percentage = eyelid_height / max_eyelid_height
 
-        #计算瞳孔偏移后的缩小大小，模拟球面的透视效果
-        pupil_dy =  1 - (1 if abs(rel_x)*1.5 > 1 else abs(rel_x)*1.5)
+        eyelid_percentage =  1 - (1 if abs(eyelid_percentage) > 1 else abs(eyelid_percentage))
 
-
-        left_ias_img = map_float_to_array(LEFT_IRIS_AND_SCLERA_RENDER.iris_and_sclera_array_list,pupil_dy)
-        right_ias_img = map_float_to_array(RIGHT_IRIS_AND_SCLERA_RENDER.iris_and_sclera_array_list,pupil_dy)
+        rend(eyelid_percentage,radius,rel_x,rel_y)
 
 
-        eyelid_img = map_float_to_array(EYELID_RENDER.eyelid_list,eyelid_percentage)
+def runWithMQTT():
+    def on_connect(client, userdata, flags, rc, properties=None):
+        client.subscribe(MQTT_TOPIC)
 
-        #眨眼处理
-        if radius == 0:
-            eyelid_img = map_float_to_array(EYELID_RENDER.eyelid_list,1)
+    def on_message(client, userdata, msg):
+        try:
 
-        
-        #渲染最终图像
-        left_eyelid_surface =  crop_centered_region(
-            eyelid_img, 
-            int(rel_x*3), 
-            int(rel_y*12)
-        )
-        #右眼眼睑镜像
-        right_eyelid_surface =  crop_centered_region(
-            np.fliplr(
-                eyelid_img
-            ), 
-            int(rel_x*3),
-            int(rel_y*12)
-        )
+            message_payload = msg.payload.decode()
+            message_json = json.loads(message_payload)
+            rend(**message_json)
+            
+        except:
+            pass
 
+    # Create an MQTT client instance
+    client = mqtt.Client()
+    client.on_connect = on_connect
+    client.on_message = on_message
 
-        left_ias_surface  = crop_centered_region(
-            left_ias_img, 
-            int(rel_x*100), 
-            int(rel_y*100)
-        )
+    # Connect to the MQTT broker
+    client.connect(**MQTT_CONF)
+    
 
-        right_ias_surface  = crop_centered_region(
-            left_ias_img, 
-            int(rel_x*100), 
-            int(rel_y*100)
-        )
+    # Start the loop in a separate thread
+    client.loop_start()
+    while True:
+        time.sleep(0.01)
 
-        #合并最终图像
-        left_eye = combine_render(left_eyelid_surface,left_ias_surface)
-        right_eye = combine_render(right_eyelid_surface,right_ias_surface)
+if __name__ == "__main__":
 
+    loadingThread = threading.Thread(target = loadingFrame)
+    loadingThread.start()
 
-        #提交到屏幕
-        LEFT_SCREEN.img_show(left_eye)
-        RIGHT_SCREEN.img_show(right_eye)
+    #初始化开始
+    init()
+    if TRACK_TYPE == 1:
+        runWithCV()
+    elif TRACK_TYPE == 2:
+        runWithMQTT()
