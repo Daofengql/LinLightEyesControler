@@ -57,16 +57,19 @@ class ST7789():
         
         """LCD初始化"""
         self.reset()
-
+        
+        #屏幕显示方向
         self.write_cmd(0x36) 
-        self.write_data(0x00)
-
+        self.write_data(0x00) #0x00 竖屏 0xA0 向左横屏
+        
+        #65k 颜色 565模式
         self.write_cmd(0x3A) 
         self.write_data(0x05)
 
+        #ST7789 Frame rate setting
         self.write_cmd(0xB2)
-        self.write_data(0x0C)
-        self.write_data(0x0C)
+        self.write_data(0x05)
+        self.write_data(0x05)
         self.write_data(0x00)
         self.write_data(0x33)
         self.write_data(0x33)
@@ -74,6 +77,7 @@ class ST7789():
         self.write_cmd(0xB7) 
         self.write_data(0x35)
 
+        #ST7789 Power setting
         self.write_cmd(0xBB)
         self.write_data(0x19)
 
@@ -96,7 +100,8 @@ class ST7789():
         self.write_data(0xA4)
         self.write_data(0xA1)
 
-        self.write_cmd(0xE0)
+        #ST7789 gamma setting
+        self.write_cmd(0xE0)  # Set Gamma
         self.write_data(0xD0)
         self.write_data(0x04)
         self.write_data(0x0D)
@@ -112,7 +117,7 @@ class ST7789():
         self.write_data(0x1F)
         self.write_data(0x23)
 
-        self.write_cmd(0xE1)
+        self.write_cmd(0xE1)  # Set Gamma
         self.write_data(0xD0)
         self.write_data(0x04)
         self.write_data(0x0C)
