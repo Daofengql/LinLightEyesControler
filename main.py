@@ -1,12 +1,12 @@
 from PIL import Image, ImageSequence
 import numpy as np
-import cv2
 import board
 import digitalio
 import threading
 import time
-import paho.mqtt.client as mqtt
+import ctypes
 import json
+import paho.mqtt.client as mqtt
 from collections import deque
 from periphery import SPI
 
@@ -17,13 +17,15 @@ from lib.Render import (
     map_float_to_array,
     combine_render
 )
-from lib.EyesControler import detect_pupil
 from lib.ST7789 import ST7789,convert_rgba_to_rgb565
+from lib.PCA9685 import PCA9685
 
 
 #配置部分，定义各种硬件接口和资源文件
+#I2C总线定义
+I2C_BUS = "/dev/i2c-5"
 #SPI总线定义
-SPI_SPEED = 60000000                         #使用60MHZ的通信速率，实测比较稳定的最大速度
+SPI_SPEED = 80000000                         #使用60MHZ的通信速率，实测比较稳定的最大速度
 EYE_BL = board.GPIO11                        #两个眼睛共用同一个背光控制接口，可用pwm控制亮度，默认由屏幕控制器加载为最大亮度
 
 #左眼接口定义
@@ -39,8 +41,8 @@ RIGHT_EYE_DC_PIN = board.GPIO18              #DC控制引脚
 RIGHT_EYE_EXCURISON = (5,5)                  #玻璃透镜贴的歪的程度，一个偏移矫正量
 
 #初始化各个眼睛的spi总线（一个总线，两个片选设备)
-SPI_LEFT = SPI(LEFT_EYE_TREE, 2, SPI_SPEED)
-SPI_RIGHT = SPI(RIGHT_EYE_TREE, 2, SPI_SPEED)
+SPI_LEFT = SPI(LEFT_EYE_TREE, 0, SPI_SPEED)
+SPI_RIGHT = SPI(RIGHT_EYE_TREE, 0, SPI_SPEED)
 
 #各个眼睛控制器开始实例化
 LEFT_SCREEN = ST7789(
@@ -58,6 +60,9 @@ LEFT_SCREEN.clear()
 RIGHT_SCREEN.lcd_init()                       #初始化LCD
 RIGHT_SCREEN.clear()
 
+PWM = PCA9685(i2c_dev=I2C_BUS)
+PWM.set_pwm_freq(1000)  # 通常舵机使用50-60Hz的PWM信号
+
 #背光控制
 EYE_BL = digitalio.DigitalInOut(EYE_BL)
 EYE_BL.direction = digitalio.Direction.OUTPUT
@@ -65,9 +70,9 @@ EYE_BL.value = True                           #打开背光
 
 #资源和渲染器
 #定义个个纹理数据的路径
-LEFT_IRIS_IMG = "assest/eyes/iris.png"        #左眼虹膜纹理
+LEFT_IRIS_IMG = "assest/eyes/iris-L.png"        #左眼虹膜纹理
 LEFT_SCLERA_IMG = "assest/eyes/sclera.png"    #左眼巩膜纹理
-RIGHT_IRIS_IMG = "assest/eyes/iris.png"       #右眼虹膜纹理
+RIGHT_IRIS_IMG = "assest/eyes/iris-R.png"       #右眼虹膜纹理
 RIGHT_SCLERA_IMG = "assest/eyes/sclera.png"   #右眼巩膜纹理
 LOADING_GIF = "assest/loading_Render.gif"
 LOADING_JOKE = "assest/loading_Render_joke.png"
@@ -104,21 +109,13 @@ EYELID_RENDER_CONF = {
     "sharpness": 6
 }
 
-#识别器参数
-DETECT_PUPIL_CONF = {
-    "roi_percentage": 0.6,
-    "min_pupil_diameter_percentage": 0.1,
-    "eyelid_height_percentage": 0.2
-}
-# MQTT connection configuration
 MQTT_CONF = {
     "host": "127.0.0.1",
     "port": 1883,
     "keepalive": 60
 }
-MQTT_TOPIC = "eye/1"
 INIT_STATUES = False
-TRACK_TYPE = 1     #1为使用opencv追踪    2为使用mqtt传输遥控数据
+
 
 LEFT_FRAME_BUFFER = deque(maxlen=10)
 RIGHT_FRAME_BUFFER = deque(maxlen=10)
@@ -260,46 +257,26 @@ def rend(eyelid_percentage, radius, rel_x, rel_y):
             )
     )
 
-    
+# 强制终止线程的函数
+def terminate_thread(thread):
+    if not thread.is_alive():
+        return
+
+    # 获取线程的ID
+    thread_id = thread.ident
+    # 使用ctypes发出终止请求
+    res = ctypes.pythonapi.PyThreadState_SetAsyncExc(ctypes.c_long(thread_id), ctypes.py_object(SystemExit))
+    if res == 0:
+        raise ValueError("Invalid thread id")
+    elif res > 1:
+        # 复位状态，如果出现异常
+        ctypes.pythonapi.PyThreadState_SetAsyncExc(thread_id, 0)
+        raise SystemError("PyThreadState_SetAsyncExc failed")
 
 
-def runWithCV():
-    max_eyelid_height = 1
-
-    #打开视频设备
-    cap = cv2.VideoCapture("eye2.mp4")
-
-    while cap.isOpened():
-        ret, frame = cap.read()
-        if not ret:
-            # 如果视频结束，则重新开始
-            cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
-            continue
-        
-        # 获取图像的尺寸
-        rows, _, _ = frame.shape
-
-        # 左右翻转图像
-        frame = np.fliplr(frame)
-
-        #获取追踪数据
-        eyelid_height, radius, (rel_x, rel_y) = detect_pupil(frame, **DETECT_PUPIL_CONF)
-        
-        #判断眼睑高度是否大于已知最大高度，是否小于识别区高度，更新最大眼睑
-        if eyelid_height > max_eyelid_height and eyelid_height < DETECT_PUPIL_CONF["roi_percentage"] * rows:
-            max_eyelid_height = eyelid_height
-
-        #计算眼睑打开的比例
-        eyelid_percentage = eyelid_height / max_eyelid_height
-
-        eyelid_percentage =  1 - (1 if abs(eyelid_percentage) > 1 else abs(eyelid_percentage))
-
-        rend(eyelid_percentage,radius,rel_x,rel_y)
-
-
-def runWithMQTT():
+def MqttRender():
     def on_connect(client, userdata, flags, rc, properties=None):
-        client.subscribe(MQTT_TOPIC)
+        client.subscribe("controler/eye")
 
     def on_message(client, userdata, msg):
         try:
@@ -312,7 +289,7 @@ def runWithMQTT():
             pass
 
     # Create an MQTT client instance
-    client = mqtt.Client()
+    client = mqtt.Client(client_id="EYE_Render")
     client.on_connect = on_connect
     client.on_message = on_message
 
@@ -343,10 +320,76 @@ def SPIpipe():
         
         # 每秒计算并打印循环次数
         if time.time() - start_time >= 1:
-            print(f"每秒循环次数: {iteration_count},队列长度：{len(LEFT_FRAME_BUFFER)}")
+            #print(iteration_count)
+            
             iteration_count = 0
             start_time = time.time()
 
+
+def MqttPWM():
+    def on_connect(client, userdata, flags, rc, properties=None):
+        client.subscribe("controler/pwm")
+
+    def on_message(client, userdata, msg):
+        try:
+
+            message_payload = msg.payload.decode()
+            message_json = json.loads(message_payload)
+            if message_json["type"] == "set":
+                pwmdat = message_json["data"]
+                channel = int(pwmdat["channel"])
+                value = int(pwmdat["value"])
+                if channel <= 15:
+                    PWM.set_pwm(channel, 1, value)
+            elif message_json["type"] == "breath":
+                pwmdat = message_json["data"]
+                channel = int(pwmdat["channel"])
+                step1 = int(pwmdat["step1"])
+                step2 = int(pwmdat["step2"])
+                PWMrange = tuple(pwmdat["range"])
+
+                terminate_thread(threads[f"{channel}"])
+                threads[f"{channel}"] = threading.Thread(target = whilePWM ,args=(channel, step1, step2, PWMrange))
+                threads[f"{channel}"].start()         
+            else:
+                pass
+
+                
+            
+        except:
+            pass
+
+        
+    def whilePWM(channel:int,step1:int,step2:int,PWMrange:tuple):
+        while True:
+            if step1 == 0:
+                time.sleep(1)
+            else:
+                for i in range(PWMrange[0],PWMrange[1],step1):
+                    PWM.set_pwm(channel, 1, i)
+                
+                for i in range(PWMrange[1],PWMrange[0],-step2):
+                    PWM.set_pwm(channel, 1, i)
+
+
+    threads = {}
+    for i in range(16):
+        threads[f"{i}"] =  threading.Thread(target = whilePWM ,args=(i, 0, 0,(0,0)))
+        threads[f"{i}"].start()
+
+    # Create an MQTT client instance
+    client = mqtt.Client(client_id="PWM_Controler")
+    client.on_connect = on_connect
+    client.on_message = on_message
+
+    # Connect to the MQTT broker
+    client.connect(**MQTT_CONF)
+    
+
+    # Start the loop in a separate thread
+    client.loop_start()
+    while True:
+        time.sleep(0.01)
 
 if __name__ == "__main__":
 
@@ -359,8 +402,20 @@ if __name__ == "__main__":
     pipeThread = threading.Thread(target = SPIpipe)
     pipeThread.start()
 
-    if TRACK_TYPE == 1:
-        runWithCV()
-    elif TRACK_TYPE == 2:
-        runWithMQTT()
+    RenderThread = threading.Thread(target = MqttRender)
+    RenderThread.start()
+
+    PwmThread = threading.Thread(target = MqttPWM)
+    PwmThread.start()
+
+
+    while True:
+        time.sleep(0.1)
     
+
+    
+
+
+
+
+        
