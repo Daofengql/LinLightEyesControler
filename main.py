@@ -10,15 +10,15 @@ import paho.mqtt.client as mqtt
 from collections import deque
 from periphery import SPI
 
-from lib.Render import (
+from mods.Render import (
     IrisAndScleraRender,
     EyeLidRender,
     crop_centered_region,
     map_float_to_array,
     combine_render
 )
-from lib.ST7789 import ST7789,convert_rgba_to_rgb565
-from lib.PCA9685 import PCA9685
+from mods.ST7789 import ST7789,convert_rgba_to_rgb565
+from mods.PCA9685 import PCA9685
 
 
 #配置部分，定义各种硬件接口和资源文件
