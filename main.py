@@ -1,12 +1,11 @@
-from PIL import Image, ImageSequence
-import numpy as np
-import threading
 import time
 import json
 import base64
+import threading
+import numpy as np
 from io import BytesIO
 import paho.mqtt.client as mqtt
-
+from PIL import Image, ImageSequence
 from mods.config import *
 from mods.systems import terminate_thread
 from mods.hardware.ST7789 import convert_rgba_to_rgb565
