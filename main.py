@@ -6,6 +6,8 @@ import threading
 import time
 import ctypes
 import json
+import base64
+from io import BytesIO
 import paho.mqtt.client as mqtt
 from collections import deque
 from periphery import SPI
@@ -121,6 +123,7 @@ LEFT_FRAME_BUFFER = deque(maxlen=10)
 RIGHT_FRAME_BUFFER = deque(maxlen=10)
 
 
+
 #正式加载开始
 def init():
 
@@ -197,9 +200,25 @@ def loadingFrame():
             time.sleep(delay)
 
 
-def rend(eyelid_percentage, radius, rel_x, rel_y):
+def pushImg(leftimg,rightimg):
+    #体提交到队列
+    LEFT_FRAME_BUFFER.append(
+        convert_rgba_to_rgb565(
+            leftimg
+            )
+    )
+    RIGHT_FRAME_BUFFER.append(
+        convert_rgba_to_rgb565(
+            rightimg
+            )
+    )
+
+
+def EYErend(eyelid_percentage, radius, rel_x, rel_y):
+
+    
     #计算瞳孔偏移后的缩小大小，模拟球面的透视效果
-    pupil_dy =  1 - (1 if abs(rel_x)*1.5 > 1 else abs(rel_x)*1.5)
+    pupil_dy =  1 - (1 if abs(rel_x)*1.6 > 1 else abs(rel_x)*1.6)
 
     left_ias_img = map_float_to_array(LEFT_IRIS_AND_SCLERA_RENDER.iris_and_sclera_array_list,pupil_dy)
     right_ias_img = map_float_to_array(RIGHT_IRIS_AND_SCLERA_RENDER.iris_and_sclera_array_list,pupil_dy)
@@ -208,8 +227,9 @@ def rend(eyelid_percentage, radius, rel_x, rel_y):
     eyelid_img = map_float_to_array(EYELID_RENDER.eyelid_list,eyelid_percentage)
 
     #眨眼处理
-    if radius == 0:
-        eyelid_img = map_float_to_array(EYELID_RENDER.eyelid_list,1)
+    #if radius == 0:
+        #eyelid_img = map_float_to_array(EYELID_RENDER.eyelid_list,1)
+    eyelid_img = map_float_to_array(EYELID_RENDER.eyelid_list,radius)
 
     
     #渲染最终图像
@@ -244,18 +264,33 @@ def rend(eyelid_percentage, radius, rel_x, rel_y):
     left_eye = combine_render(left_eyelid_surface,left_ias_surface)
     right_eye = combine_render(right_eyelid_surface,right_ias_surface)
 
+    pushImg(left_eye,right_eye)
 
-    #体提交到队列
-    LEFT_FRAME_BUFFER.append(
-        convert_rgba_to_rgb565(
-            left_eye
-            )
-    )
-    RIGHT_FRAME_BUFFER.append(
-        convert_rgba_to_rgb565(
-            right_eye
-            )
-    )
+
+
+def CustomScreenRend(leftimg,rightimg,n):
+    def base64_to_nparray(base64_string):
+        # 解码Base64字符串
+        img_data = base64.b64decode(base64_string)
+        
+        # 将二进制数据转换为字节流
+        img = BytesIO(img_data)
+        
+        # 使用Pillow打开图片
+        image = Image.open(img)
+        
+        # 将Pillow图片对象转换为numpy数组
+        img_array = np.array(image)
+        
+        return img_array
+    
+    left = base64_to_nparray(leftimg) 
+    right = base64_to_nparray(rightimg)
+
+    for _ in range(n):
+        pushImg(left,right)
+
+
 
 # 强制终止线程的函数
 def terminate_thread(thread):
@@ -283,8 +318,14 @@ def MqttRender():
 
             message_payload = msg.payload.decode()
             message_json = json.loads(message_payload)
-            rend(**message_json)
-            
+            args = message_json["data"]
+
+            if not message_json["isCustomScreen"]:
+                
+                EYErend(**args)
+            else:
+                CustomScreenRend(**args)
+                
         except:
             pass
 
