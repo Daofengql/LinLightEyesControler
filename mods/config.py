@@ -60,6 +60,7 @@ RIGHT_IRIS_IMG = "assest/eyes/iris-R.png"       #右眼虹膜纹理
 RIGHT_SCLERA_IMG = "assest/eyes/sclera.png"   #右眼巩膜纹理
 LOADING_GIF = "assest/loading_Render.gif"
 LOADING_JOKE = "assest/loading_Render_joke.png"
+PRELOADING_JOKE = "assest/preloading_Render_success.png"
 #渲染器
 LEFT_IRIS_AND_SCLERA_RENDER = None            #左眼主渲染器
 RIGHT_IRIS_AND_SCLERA_RENDER = None           #右眼主渲染器

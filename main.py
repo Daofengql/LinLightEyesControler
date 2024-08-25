@@ -7,7 +7,7 @@ from io import BytesIO
 import paho.mqtt.client as mqtt
 from PIL import Image, ImageSequence
 from mods.config import *
-from mods.systems import terminate_thread
+from mods.systems import *
 from mods.hardware.ST7789 import convert_rgba_to_rgb565
 
 from mods.Render import (
@@ -26,27 +26,47 @@ def init():
     global INIT_STATUES
 
 
+    #判断是否存在预载缓存
+    #计算md5
+    LEFT_IRIS_MD5 = calculate_md5(LEFT_IRIS_IMG)
+    LEFT_SCLERA_MD5 = calculate_md5(LEFT_SCLERA_IMG)
+    RIGHT_IRIS_MD5 = calculate_md5(RIGHT_IRIS_IMG)
+    RIGHT_SCLERA_MD5 = calculate_md5(RIGHT_SCLERA_IMG)
+    
     #渲染器开始预渲染加载(高耗时步骤)
-    #资源文件的加载，左右眼可独立设置对应的资源文件
-    LEFT_IRIS_IMG = Image.open(LEFT_IRIS_IMG).resize((1024,80)).convert("RGBA")
-    LEFT_SCLERA_IMG = Image.open(LEFT_SCLERA_IMG).resize((24000,512)).convert("RGBA")
-    RIGHT_IRIS_IMG = Image.open(RIGHT_IRIS_IMG).resize((1024,80)).convert("RGBA")
-    RIGHT_SCLERA_IMG = Image.open(RIGHT_SCLERA_IMG).resize((24000,512)).convert("RGBA")
+    
+    if check_cache(LEFT_SCLERA_MD5 + "_" + LEFT_IRIS_MD5):
+        LEFT_IRIS_AND_SCLERA_RENDER = read_cache(LEFT_SCLERA_MD5 + "_" + LEFT_IRIS_MD5)
+    else:
+        #资源文件的加载，左右眼可独立设置对应的资源文件
+        LEFT_IRIS_IMG = Image.open(LEFT_IRIS_IMG).resize((1024,80)).convert("RGBA")
+        LEFT_SCLERA_IMG = Image.open(LEFT_SCLERA_IMG).resize((24000,512)).convert("RGBA")
+        #渲染器开始预渲染纹理，将纹理载入内存
+        LEFT_IRIS_AND_SCLERA_RENDER = IrisAndScleraRender(
+            sclera=LEFT_SCLERA_IMG,
+            iris=LEFT_IRIS_IMG,
+            frame_size=IAS_FRAME_SIZE,
+            **LEFT_IASR_CONF
+        )
 
+        make_cache(LEFT_IRIS_AND_SCLERA_RENDER,LEFT_SCLERA_MD5 + "_" + LEFT_IRIS_MD5)
 
-    #渲染器开始预渲染纹理，将纹理载入内存
-    LEFT_IRIS_AND_SCLERA_RENDER = IrisAndScleraRender(
-        sclera=LEFT_SCLERA_IMG,
-        iris=LEFT_IRIS_IMG,
-        frame_size=IAS_FRAME_SIZE,
-        **LEFT_IASR_CONF
-    )
-    RIGHT_IRIS_AND_SCLERA_RENDER = IrisAndScleraRender(
-        sclera=RIGHT_SCLERA_IMG,
-        iris=RIGHT_IRIS_IMG,
-        frame_size=IAS_FRAME_SIZE,
-        **RIGHT_IASR_CONF
-    )
+    if check_cache(RIGHT_SCLERA_MD5 + "_" + RIGHT_IRIS_MD5):
+        RIGHT_IRIS_AND_SCLERA_RENDER = read_cache(RIGHT_SCLERA_MD5 + "_" + RIGHT_IRIS_MD5)
+    else:
+        #资源文件的加载，左右眼可独立设置对应的资源文件
+        RIGHT_IRIS_IMG = Image.open(RIGHT_IRIS_IMG).resize((1024,80)).convert("RGBA")
+        RIGHT_SCLERA_IMG = Image.open(RIGHT_SCLERA_IMG).resize((24000,512)).convert("RGBA")
+        #渲染器开始预渲染纹理，将纹理载入内存
+        RIGHT_IRIS_AND_SCLERA_RENDER = IrisAndScleraRender(
+            sclera=RIGHT_SCLERA_IMG,
+            iris=RIGHT_IRIS_IMG,
+            frame_size=IAS_FRAME_SIZE,
+            **RIGHT_IASR_CONF
+        )
+        make_cache(RIGHT_IRIS_AND_SCLERA_RENDER,RIGHT_SCLERA_MD5 + "_" + RIGHT_IRIS_MD5)
+
+        
     EYELID_RENDER = EyeLidRender(
         **EYELID_RENDER_CONF
     )
@@ -57,6 +77,8 @@ def loadingFrame():
     gif = Image.open(LOADING_GIF)
     success = Image.open(LOADING_JOKE)
     success = np.array(success.convert('RGBA'))
+    preloadSuccess = Image.open(PRELOADING_JOKE)
+    preloadSuccess = np.array(preloadSuccess.convert('RGBA'))
 
     #提交搞笑到屏幕
     LEFT_SCREEN.img_show(
@@ -70,7 +92,20 @@ def loadingFrame():
             )
     )
 
-    time.sleep(3)
+    time.sleep(2)
+
+    if INIT_STATUES:
+        #提交搞笑到屏幕
+        LEFT_SCREEN.img_show(
+            convert_rgba_to_rgb565(
+                preloadSuccess
+                )
+        )
+        RIGHT_SCREEN.img_show(
+            convert_rgba_to_rgb565(
+                preloadSuccess
+                )
+        )
     
     # 遍历GIF的每一帧
     while True:
